@@ -24,7 +24,7 @@ jobs:
     - name: Build and push
       uses: docker/build-push-action@v5
       with:
-        context: .
+        context: ./AntiSpamBot
         platforms: linux/amd64,linux/arm64
         push: true
         tags: ghcr.io/2767mr/anti-spam:latest
