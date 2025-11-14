@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: anti-spam
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: anti-spam-secrets
+  namespace: anti-spam
+type: Opaque
+stringData:
+  # Set these values before deploying
+  discord-token: "YOUR_DISCORD_BOT_TOKEN_HERE"
+  admin-channel-id: "0"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anti-spam-config
+  namespace: anti-spam
+data:
+  appsettings.json: |
+    {
+      "Logging": {
+        "LogLevel": {
+          "Default": "Information",
+          "Microsoft.AspNetCore": "Warning",
+          "AntiSpamBot": "Information"
+        }
+      },
+      "AllowedHosts": "*",
+      "SpamDetection": {
+        "MessageHistoryDays": 7,
+        "MinimumOldestMessageMinutes": 10,
+        "MinimumChannelCount": 4
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anti-spam
+  namespace: anti-spam
+  labels:
+    app: anti-spam
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anti-spam
+  template:
+    metadata:
+      labels:
+        app: anti-spam
+    spec:
+      containers:
+      - name: anti-spam
+        image: ghcr.io/2767mr/anti-spam:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        env:
+        - name: ASPNETCORE_ENVIRONMENT
+          value: "Production"
+        - name: ASPNETCORE_URLS
+          value: "http://+:8080"
+        - name: DiscordBot__Token
+          valueFrom:
+            secretKeyRef:
+              name: anti-spam-secrets
+              key: discord-token
+        - name: DiscordBot__AdminChannelId
+          valueFrom:
+            secretKeyRef:
+              name: anti-spam-secrets
+              key: admin-channel-id
+        - name: DiscordBot__TimeoutDurationMinutes
+          value: "60"
+        volumeMounts:
+        - name: config
+          mountPath: /app/appsettings.json
+          subPath: appsettings.json
+          readOnly: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 12
+      volumes:
+      - name: config
+        configMap:
+          name: anti-spam-config
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anti-spam
+  namespace: anti-spam
+  labels:
+    app: anti-spam
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: anti-spam
