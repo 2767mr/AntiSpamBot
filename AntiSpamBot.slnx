@@ -1,7 +1,7 @@
 <Solution>
-  <Folder Name="/.github/" />
-  <Folder Name="/.github/workflows/">
-    <File Path="publish.yml" />
+  <Folder Name="/Solution Items/">
+    <File Path=".github/workflows/publish.yml" />
+    <File Path=".gitignore" />
   </Folder>
   <Project Path="AntiSpamBot.Tests/AntiSpamBot.Tests.csproj" />
   <Project Path="AntiSpamBot/AntiSpamBot.csproj" />
