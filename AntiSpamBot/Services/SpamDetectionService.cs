@@ -52,7 +52,7 @@ public class SpamDetectionService : ISpamDetectionService
 
                 userMessages.AddRange(relevantMessages);
             }
-            catch (HttpException ex) when (ex.HttpCode == System.Net.HttpStatusCode.Forbidden)
+            catch (HttpException ex) when (ex.DiscordCode == DiscordErrorCode.MissingPermissions)
             {
                 // Bot doesn't have permission to read this channel - log at debug level to avoid spam
                 _logger.LogDebug("Bot does not have permission to read messages from channel {ChannelId}", channel.Id);

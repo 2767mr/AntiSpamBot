@@ -263,8 +263,8 @@ public class SpamDetectionServiceTests
         // Channel 2: Restricted channel that throws permission exception
         var restrictedChannel = new Mock<ITextChannel>();
         restrictedChannel.Setup(x => x.Id).Returns(1002ul);
-        // Create HttpException with Forbidden status code - passing nullable DiscordErrorCode
-        var httpException = new HttpException(System.Net.HttpStatusCode.Forbidden, null, (Discord.DiscordErrorCode?)50013, null, null);
+        // Create HttpException with MissingPermissions error code
+        var httpException = new HttpException(System.Net.HttpStatusCode.Forbidden, null, DiscordErrorCode.MissingPermissions, null, null);
         restrictedChannel.Setup(x => x.GetMessagesAsync(It.IsAny<int>(), It.IsAny<CacheMode>(), It.IsAny<RequestOptions>()))
             .Throws(httpException);
         textChannels.Add(restrictedChannel.Object);
