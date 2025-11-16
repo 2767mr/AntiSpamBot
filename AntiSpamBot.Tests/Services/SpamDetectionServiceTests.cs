@@ -1,6 +1,7 @@
 using AntiSpamBot.Configuration;
 using AntiSpamBot.Services;
 using Discord;
+using Discord.Net;
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -236,6 +237,120 @@ public class SpamDetectionServiceTests
         Assert.False(result.IsSpammer); // 10 minutes is the threshold, so NOT a spammer
         Assert.Equal(4, result.MessageCount);
         Assert.Equal(4, result.UniqueChannelCount);
+    }
+
+    [Fact]
+    public async Task AnalyzeUserAsync_ChannelWithPermissionDenied_LogsDebugAndContinues()
+    {
+        // Arrange
+        var userId = 123456789ul;
+        var guildMock = new Mock<IGuild>();
+        var textChannels = new List<ITextChannel>();
+
+        // Channel 1: Accessible channel with messages
+        var accessibleChannel = new Mock<ITextChannel>();
+        accessibleChannel.Setup(x => x.Id).Returns(1001ul);
+        var messages = new List<IMessage>
+        {
+            CreateMockMessage(userId, 1001ul, DateTimeOffset.UtcNow.AddMinutes(-5))
+        };
+        var asyncEnumerable = new TestAsyncEnumerable<IReadOnlyCollection<IMessage>>(
+            new[] { messages as IReadOnlyCollection<IMessage> });
+        accessibleChannel.Setup(x => x.GetMessagesAsync(It.IsAny<int>(), It.IsAny<CacheMode>(), It.IsAny<RequestOptions>()))
+            .Returns(asyncEnumerable);
+        textChannels.Add(accessibleChannel.Object);
+
+        // Channel 2: Restricted channel that throws permission exception
+        var restrictedChannel = new Mock<ITextChannel>();
+        restrictedChannel.Setup(x => x.Id).Returns(1002ul);
+        // Create HttpException with MissingPermissions error code
+        var httpException = new HttpException(System.Net.HttpStatusCode.Forbidden, null, DiscordErrorCode.MissingPermissions, null, null);
+        restrictedChannel.Setup(x => x.GetMessagesAsync(It.IsAny<int>(), It.IsAny<CacheMode>(), It.IsAny<RequestOptions>()))
+            .Throws(httpException);
+        textChannels.Add(restrictedChannel.Object);
+
+        guildMock.Setup(x => x.GetTextChannelsAsync(It.IsAny<CacheMode>(), It.IsAny<RequestOptions>()))
+            .ReturnsAsync(textChannels);
+
+        // Act
+        var result = await _service.AnalyzeUserAsync(userId, guildMock.Object);
+
+        // Assert
+        Assert.Equal(1, result.MessageCount); // Only messages from accessible channel
+        Assert.Equal(1, result.UniqueChannelCount);
+        
+        // Verify Debug log was called for permission denied (not Warning)
+        _loggerMock.Verify(
+            x => x.Log(
+                LogLevel.Debug,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("does not have permission")),
+                null,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+        
+        // Verify Warning log was NOT called for this channel
+        _loggerMock.Verify(
+            x => x.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("1002")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task AnalyzeUserAsync_ChannelWithNonPermissionException_LogsWarning()
+    {
+        // Arrange
+        var userId = 123456789ul;
+        var guildMock = new Mock<IGuild>();
+        var textChannels = new List<ITextChannel>();
+
+        // Channel with a non-permission exception
+        var faultyChannel = new Mock<ITextChannel>();
+        faultyChannel.Setup(x => x.Id).Returns(1001ul);
+        faultyChannel.Setup(x => x.GetMessagesAsync(It.IsAny<int>(), It.IsAny<CacheMode>(), It.IsAny<RequestOptions>()))
+            .Throws(new InvalidOperationException("Some other error"));
+        textChannels.Add(faultyChannel.Object);
+
+        guildMock.Setup(x => x.GetTextChannelsAsync(It.IsAny<CacheMode>(), It.IsAny<RequestOptions>()))
+            .ReturnsAsync(textChannels);
+
+        // Act
+        var result = await _service.AnalyzeUserAsync(userId, guildMock.Object);
+
+        // Assert
+        Assert.Equal(0, result.MessageCount);
+        
+        // Verify Warning log was called for other exceptions
+        _loggerMock.Verify(
+            x => x.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Failed to fetch messages")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    private IMessage CreateMockMessage(ulong userId, ulong channelId, DateTimeOffset timestamp)
+    {
+        var msgMock = new Mock<IMessage>();
+        msgMock.Setup(x => x.Id).Returns((ulong)Random.Shared.Next(1000000, 9999999));
+        msgMock.Setup(x => x.Timestamp).Returns(timestamp);
+        msgMock.Setup(x => x.Content).Returns("Test message");
+
+        var authorMock = new Mock<IUser>();
+        authorMock.Setup(x => x.Id).Returns(userId);
+        msgMock.Setup(x => x.Author).Returns(authorMock.Object);
+
+        var channelRefMock = new Mock<IMessageChannel>();
+        channelRefMock.Setup(x => x.Id).Returns(channelId);
+        msgMock.Setup(x => x.Channel).Returns(channelRefMock.Object);
+
+        return msgMock.Object;
     }
 
     private IGuild CreateMockGuild(List<(ulong channelId, List<MockMessage> messages)> channelMessages)
