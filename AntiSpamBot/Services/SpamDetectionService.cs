@@ -1,6 +1,7 @@
 using AntiSpamBot.Configuration;
 using AntiSpamBot.Models;
 using Discord;
+using Discord.Net;
 using Discord.WebSocket;
 using Microsoft.Extensions.Options;
 
@@ -51,8 +52,14 @@ public class SpamDetectionService : ISpamDetectionService
 
                 userMessages.AddRange(relevantMessages);
             }
+            catch (HttpException ex) when (ex.HttpCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                // Bot doesn't have permission to read this channel - log at debug level to avoid spam
+                _logger.LogDebug("Bot does not have permission to read messages from channel {ChannelId}", channel.Id);
+            }
             catch (Exception ex)
             {
+                // Other exceptions should still be logged as warnings
                 _logger.LogWarning(ex, "Failed to fetch messages from channel {ChannelId}", channel.Id);
             }
         }
