@@ -32,7 +32,8 @@ public class DiscordBotService : IHostedService
             GatewayIntents = GatewayIntents.Guilds | 
                            GatewayIntents.GuildMessages |
                            GatewayIntents.GuildMembers |
-                           GatewayIntents.MessageContent,
+                           GatewayIntents.MessageContent |
+                           GatewayIntents.GuildBans,
             AlwaysDownloadUsers = true
         };
 
