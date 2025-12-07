@@ -43,7 +43,7 @@ public class ActionReporterService : IActionReporterService
             }
 
             var embed = new EmbedBuilder()
-                .WithTitle("?? Spammer Detected and Actioned")
+                .WithTitle("Spammer Detected and Actioned")
                 .WithColor(Color.Red)
                 .WithCurrentTimestamp()
                 .AddField("User", $"{user.Username}#{user.Discriminator} ({user.Mention})", inline: true)
@@ -57,8 +57,8 @@ public class ActionReporterService : IActionReporterService
                         : "N/A", 
                     inline: true)
                 .AddField("Actions Taken", 
-                    $"?? Timed out for {timeoutDuration.TotalMinutes} minutes\n" +
-                    $"??? Deleted {deletedMessageCount} messages",
+                    $"* Timed out for {timeoutDuration.TotalMinutes} minutes\n" +
+                    $"* Deleted {deletedMessageCount} messages",
                     inline: false);
 
             // Add a sample of channels where messages were found
