@@ -126,9 +126,14 @@ public class DiscordBotService : IHostedService
                 _logger.LogInformation("User {Username} timed out for {Duration} minutes", 
                     user.Username, _settings.TimeoutDurationMinutes);
 
+                // Rescan for messages after timeout to catch any messages sent between detection and timeout
+                var rescanResult = await _spamDetectionService.AnalyzeUserAsync(user.Id, guild);
+                _logger.LogInformation("Rescan found {MessageCount} messages from {Username} (original: {OriginalCount})", 
+                    rescanResult.MessageCount, user.Username, result.MessageCount);
+
                 // Delete all their recent messages
                 var deletedCount = 0;
-                foreach (var msg in result.Messages)
+                foreach (var msg in rescanResult.Messages)
                 {
                     try
                     {
