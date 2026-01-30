@@ -161,7 +161,7 @@ public class DiscordBotService : IHostedService
                 await _actionReporter.ReportSpammerActionAsync(
                     _client,
                     user,
-                    result,
+                    rescanResult,
                     deletedCount,
                     timeoutDuration);
             }
