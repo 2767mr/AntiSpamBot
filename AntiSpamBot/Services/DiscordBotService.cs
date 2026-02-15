@@ -138,14 +138,17 @@ public class DiscordBotService : IHostedService
                     try
                     {
                         var channel = await _client.GetChannelAsync(msg.ChannelId) as ITextChannel;
-                        if (channel != null)
+                        if (channel == null)
                         {
-                            var msgToDelete = await channel.GetMessageAsync(msg.MessageId);
-                            if (msgToDelete != null)
-                            {
-                                await msgToDelete.DeleteAsync();
-                                deletedCount++;
-                            }
+                            _logger.LogWarning("Could not retrieve text channel {ChannelId} for message deletion", msg.ChannelId);
+                            continue;
+                        }
+
+                        var msgToDelete = await channel.GetMessageAsync(msg.MessageId);
+                        if (msgToDelete != null)
+                        {
+                            await msgToDelete.DeleteAsync();
+                            deletedCount++;
                         }
                     }
                     catch (Exception ex)
