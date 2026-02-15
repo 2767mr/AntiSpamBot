@@ -137,23 +137,34 @@ public class DiscordBotService : IHostedService
                 {
                     try
                     {
-                        var channel = await _client.GetChannelAsync(msg.ChannelId) as ITextChannel;
+                        _logger.LogDebug("Attempting to delete message {MessageId} from channel {ChannelId}", msg.MessageId, msg.ChannelId);
+                        
+                        var channel = guild.GetTextChannel(msg.ChannelId);
                         if (channel == null)
                         {
-                            _logger.LogWarning("Could not retrieve text channel {ChannelId} for message deletion", msg.ChannelId);
+                            _logger.LogWarning("Channel {ChannelId} not found in guild cache for message deletion", msg.ChannelId);
                             continue;
                         }
 
+                        _logger.LogDebug("Channel {ChannelName} ({ChannelId}) found, fetching message", channel.Name, channel.Id);
+                        
                         var msgToDelete = await channel.GetMessageAsync(msg.MessageId);
-                        if (msgToDelete != null)
+                        if (msgToDelete == null)
                         {
-                            await msgToDelete.DeleteAsync();
-                            deletedCount++;
+                            _logger.LogWarning("Message {MessageId} not found in channel {ChannelName} ({ChannelId})", 
+                                msg.MessageId, channel.Name, channel.Id);
+                            continue;
                         }
+
+                        _logger.LogDebug("Message {MessageId} found, attempting to delete", msg.MessageId);
+                        await msgToDelete.DeleteAsync();
+                        deletedCount++;
+                        _logger.LogDebug("Successfully deleted message {MessageId}", msg.MessageId);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to delete message {MessageId}", msg.MessageId);
+                        _logger.LogWarning(ex, "Failed to delete message {MessageId} from channel {ChannelId}", 
+                            msg.MessageId, msg.ChannelId);
                     }
                 }
 
