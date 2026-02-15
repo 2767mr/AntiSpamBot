@@ -137,7 +137,7 @@ public class DiscordBotService : IHostedService
                 {
                     try
                     {
-                        var channel = guild.GetTextChannel(msg.ChannelId);
+                        var channel = await _client.GetChannelAsync(msg.ChannelId) as ITextChannel;
                         if (channel != null)
                         {
                             var msgToDelete = await channel.GetMessageAsync(msg.MessageId);
