@@ -30,17 +30,19 @@ public class SpamDetectionService : ISpamDetectionService
         // Get all text channels from the guild
         var channels = await guild.GetTextChannelsAsync();
         
-        // Collect all messages from the user across all accessible channels
-        var userMessages = new List<UserMessage>();
+        // Collect all messages from the user across all accessible channels in parallel.
+        // A bounded concurrency keeps this responsive on larger guilds without creating an API burst.
+        const int maxConcurrentChannelScans = 10;
+        using var semaphore = new SemaphoreSlim(maxConcurrentChannelScans);
 
-        foreach (var channel in channels)
+        var scanTasks = channels.Select(async channel =>
         {
+            await semaphore.WaitAsync();
             try
             {
-                // Get messages from this channel
                 var messages = await channel.GetMessagesAsync(limit: 100).FlattenAsync();
-                
-                var relevantMessages = messages
+
+                return messages
                     .Where(m => m.Author.Id == userId && m.Timestamp >= cutoffDate)
                     .Select(m => new UserMessage
                     {
@@ -48,21 +50,28 @@ public class SpamDetectionService : ISpamDetectionService
                         ChannelId = m.Channel.Id,
                         Timestamp = m.Timestamp,
                         Content = m.Content
-                    });
-
-                userMessages.AddRange(relevantMessages);
+                    })
+                    .ToList();
             }
             catch (HttpException ex) when (ex.DiscordCode == DiscordErrorCode.MissingPermissions)
             {
                 // Bot doesn't have permission to read this channel - log at debug level to avoid spam
                 _logger.LogDebug("Bot does not have permission to read messages from channel {ChannelId}", channel.Id);
+                return [];
             }
             catch (Exception ex)
             {
                 // Other exceptions should still be logged as warnings
                 _logger.LogWarning(ex, "Failed to fetch messages from channel {ChannelId}", channel.Id);
+                return [];
             }
-        }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        var userMessages = (await Task.WhenAll(scanTasks)).SelectMany(m => m).ToList();
 
         result.Messages = userMessages.OrderBy(m => m.Timestamp).ToList();
         result.MessageCount = userMessages.Count;
