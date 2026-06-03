@@ -6,6 +6,7 @@ using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
+using System.Diagnostics;
 
 namespace AntiSpamBot.Tests.Services;
 
@@ -335,6 +336,51 @@ public class SpamDetectionServiceTests
             Times.Once);
     }
 
+    [Fact]
+    public async Task AnalyzeUserAsync_SlowChannels_AreScannedConcurrently()
+    {
+        // Arrange
+        var userId = 123456789ul;
+        var guildMock = new Mock<IGuild>();
+        var textChannels = new List<ITextChannel>();
+
+        for (var i = 0; i < 4; i++)
+        {
+            var channelId = 1001ul + (ulong)i;
+            var channelMock = new Mock<ITextChannel>();
+            channelMock.Setup(x => x.Id).Returns(channelId);
+
+            var messages = new List<IMessage>
+            {
+                CreateMockMessage(userId, channelId, DateTimeOffset.UtcNow.AddMinutes(-5))
+            };
+
+            var asyncEnumerable = new TestAsyncEnumerable<IReadOnlyCollection<IMessage>>(
+                new[] { messages as IReadOnlyCollection<IMessage> },
+                TimeSpan.FromMilliseconds(300));
+
+            channelMock.Setup(x => x.GetMessagesAsync(It.IsAny<int>(), It.IsAny<CacheMode>(), It.IsAny<RequestOptions>()))
+                .Returns(asyncEnumerable);
+
+            textChannels.Add(channelMock.Object);
+        }
+
+        guildMock.Setup(x => x.GetTextChannelsAsync(It.IsAny<CacheMode>(), It.IsAny<RequestOptions>()))
+            .ReturnsAsync(textChannels);
+
+        var stopwatch = Stopwatch.StartNew();
+
+        // Act
+        var result = await _service.AnalyzeUserAsync(userId, guildMock.Object);
+
+        stopwatch.Stop();
+
+        // Assert
+        Assert.Equal(4, result.MessageCount);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromMilliseconds(900),
+            $"Expected concurrent channel scanning. Elapsed: {stopwatch.Elapsed.TotalMilliseconds}ms");
+    }
+
     private IMessage CreateMockMessage(ulong userId, ulong channelId, DateTimeOffset timestamp)
     {
         var msgMock = new Mock<IMessage>();
@@ -411,32 +457,43 @@ public class SpamDetectionServiceTests
     private class TestAsyncEnumerable<T> : IAsyncEnumerable<T>
     {
         private readonly IEnumerable<T> _items;
+        private readonly TimeSpan _delay;
 
-        public TestAsyncEnumerable(IEnumerable<T> items)
+        public TestAsyncEnumerable(IEnumerable<T> items, TimeSpan? delay = null)
         {
             _items = items;
+            _delay = delay ?? TimeSpan.Zero;
         }
 
         public IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken cancellationToken = default)
         {
-            return new TestAsyncEnumerator<T>(_items.GetEnumerator());
+            return new TestAsyncEnumerator<T>(_items.GetEnumerator(), _delay);
         }
     }
 
     private class TestAsyncEnumerator<T> : IAsyncEnumerator<T>
     {
         private readonly IEnumerator<T> _enumerator;
+        private readonly TimeSpan _delay;
+        private bool _delayed;
 
-        public TestAsyncEnumerator(IEnumerator<T> enumerator)
+        public TestAsyncEnumerator(IEnumerator<T> enumerator, TimeSpan delay)
         {
             _enumerator = enumerator;
+            _delay = delay;
         }
 
         public T Current => _enumerator.Current;
 
-        public ValueTask<bool> MoveNextAsync()
+        public async ValueTask<bool> MoveNextAsync()
         {
-            return new ValueTask<bool>(_enumerator.MoveNext());
+            if (!_delayed && _delay > TimeSpan.Zero)
+            {
+                _delayed = true;
+                await Task.Delay(_delay);
+            }
+
+            return _enumerator.MoveNext();
         }
 
         public ValueTask DisposeAsync()
