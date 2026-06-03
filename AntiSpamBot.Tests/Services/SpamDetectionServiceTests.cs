@@ -341,10 +341,12 @@ public class SpamDetectionServiceTests
     {
         // Arrange
         var userId = 123456789ul;
+        const int channelCount = 4;
+        var perChannelDelay = TimeSpan.FromMilliseconds(300);
         var guildMock = new Mock<IGuild>();
         var textChannels = new List<ITextChannel>();
 
-        for (var i = 0; i < 4; i++)
+        for (var i = 0; i < channelCount; i++)
         {
             var channelId = 1001ul + (ulong)i;
             var channelMock = new Mock<ITextChannel>();
@@ -357,7 +359,7 @@ public class SpamDetectionServiceTests
 
             var asyncEnumerable = new TestAsyncEnumerable<IReadOnlyCollection<IMessage>>(
                 new[] { messages as IReadOnlyCollection<IMessage> },
-                TimeSpan.FromMilliseconds(300));
+                perChannelDelay);
 
             channelMock.Setup(x => x.GetMessagesAsync(It.IsAny<int>(), It.IsAny<CacheMode>(), It.IsAny<RequestOptions>()))
                 .Returns(asyncEnumerable);
@@ -376,8 +378,11 @@ public class SpamDetectionServiceTests
         stopwatch.Stop();
 
         // Assert
-        Assert.Equal(4, result.MessageCount);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromMilliseconds(900),
+        Assert.Equal(channelCount, result.MessageCount);
+        const double concurrencyThresholdRatio = 0.75;
+        var expectedSequentialDuration = TimeSpan.FromMilliseconds(perChannelDelay.TotalMilliseconds * channelCount);
+        var concurrentThreshold = TimeSpan.FromMilliseconds(expectedSequentialDuration.TotalMilliseconds * concurrencyThresholdRatio);
+        Assert.True(stopwatch.Elapsed < concurrentThreshold,
             $"Expected concurrent channel scanning. Elapsed: {stopwatch.Elapsed.TotalMilliseconds}ms");
     }
 
